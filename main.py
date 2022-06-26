@@ -1,27 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# @Time    : 2020/8/19 13:38
-# @Author  : CoderCharm
-# @File    : main.py
-# @Software: PyCharm
-# @Github  : github/CoderCharm
-# @Email   : wg_python@163.com
-# @Desc    :
-"""
-
-https://stackoverflow.com/questions/15219858/how-to-store-a-complex-object-in-redis-using-redis-py
-
-obj = ExampleObject()
-pickled_object = pickle.dumps(obj)
-r.set('some_key', pickled_object)
-unpacked_object = pickle.loads(r.get('some_key'))
-obj == unpacked_object
-
-
-
-typing.Dict[key_type, value_type]
-
-"""
 from typing import List, Dict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -29,10 +5,15 @@ from time import monotonic as now
 from fastapi import FastAPI
 import sqlite3 as sl
 from pydantic import BaseModel
-
+from starlette.requests import Request
+from starlette.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
+global zalupka228
+zalupka228 = []
 app = FastAPI()
 
-
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 class ConnectionManager:
     def __init__(self):
         # Sonline активированные ссылки
@@ -42,10 +23,12 @@ class ConnectionManager:
         # Связь
         await ws.accept()
         self.active_connections.append({"user": user, "ws": ws})
+        zalupka228.append(user)
 
     def disconnect(self, user: str, ws: WebSocket):
         # Удалите объект WS во время удаления
         self.active_connections.remove({"user": user, "ws": ws})
+        zalupka228.remove(user)
 
     @staticmethod
     async def send_personal_message(message: dict, ws: WebSocket):
@@ -110,6 +93,10 @@ async def get():
     with con: data = con.execute("SELECT * FROM notifications_db;").fetchall()
     con.close()
     return suka_convert(data)
+
+@app.get("/api/usersonline")
+async def get():
+    return zalupka228
 
 
 @app.post("/api/notifications")
@@ -194,21 +181,25 @@ async def send_notification(notification_id: int):
     return HTMLResponse(content=html_content, status_code=200)
 
 
+@app.get("/{user}", response_class=HTMLResponse)
+async def login(request: Request, user: str):
+    connected_users = zalupka228
+    if user in connected_users:
+        return templates.TemplateResponse("login.html", {"request": request, "message": f'Пользователь с ником {user} уже подключен'})
+    else:
+        zalupka228.append(user)
+        return templates.TemplateResponse("user.html", {"request": request, "user": user, "number": len(zalupka228)})
+
 
 @app.websocket("/ws/{user}")
 async def websocket_endpoint(ws: WebSocket, user: str):
     await manager.connect(user, ws)
-
-    await manager.broadcast({"user": user, "message": "Вошел в чат"})
+    await manager.broadcast({"user": user, "message": "Подключился"})
 
     try:
         while True:
-            # if now() - pingpong["user1"] > 1:
-            #     await manager.broadcast({"user": user, "message": "ping"})
             data = await ws.receive_json()
             print(data, type(data))
-            # if data['message'] == "pong" and data.get('user') == user:
-            #     pingpong['user1'] = now()
             send_user = data.get("send_user")
             if send_user:
                 await manager.send_personal_message(data, ws)
@@ -219,6 +210,7 @@ async def websocket_endpoint(ws: WebSocket, user: str):
     except WebSocketDisconnect:
         manager.disconnect(user, ws)
         await manager.broadcast({"user": user, "message": "Покинуть"})
+
 
 
 if __name__ == "__main__":
